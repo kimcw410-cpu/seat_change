@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>자리 뽑기</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --panel: #ffffff;
+    --ink: #2f3a3f;
+    --muted: #7a8589;
+    --board: #3e5b4f;
+    --board-edge: #2f4a3f;
+    --seat: #ffffff;
+    --seat-border: #d9d3c7;
+    --accent: #5b7c8d;
+    --accent-dark: #496676;
+    --num: #2f4a5a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", "Noto Sans KR", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5vh 3vw;
+    gap: 3vh;
+  }
+
+  /* 조작 영역 */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: clamp(1.2rem, 2.2vw, 2rem);
+    font-weight: 600;
+  }
+  .controls label { color: var(--ink); }
+  .controls input {
+    width: 5.5em;
+    font-size: inherit;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.3em 0.4em;
+    border: 3px solid var(--seat-border);
+    border-radius: 0.5em;
+    color: var(--ink);
+    background: var(--panel);
+    font-family: inherit;
+  }
+  .controls input:focus { outline: none; border-color: var(--accent); }
+  .controls input::placeholder { color: #c4bdb0; font-weight: 500; }
+  .controls.sub {
+    font-size: clamp(1rem, 1.6vw, 1.5rem);
+    color: var(--muted);
+    gap: 0.7rem;
+    margin-top: -1.5vh;
+  }
+  .controls.sub input { width: 4.5em; border-width: 2px; }
+  .controls button {
+    font-size: inherit;
+    font-weight: 700;
+    font-family: inherit;
+    padding: 0.4em 1.4em;
+    border: none;
+    border-radius: 0.5em;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .controls button:hover { background: var(--accent-dark); }
+  .controls button:disabled { opacity: 0.6; cursor: default; }
+  .message {
+    min-height: 1.4em;
+    color: #a0584c;
+    font-size: clamp(1rem, 1.6vw, 1.5rem);
+    font-weight: 600;
+    margin-top: -2vh;
+  }
+
+  /* 칠판 */
+  .board {
+    width: min(70vw, 1100px);
+    background: var(--board);
+    border: 0.6vw solid var(--board-edge);
+    border-radius: 0.8vw;
+    color: #eef3ee;
+    text-align: center;
+    font-size: clamp(2rem, 4.5vw, 4.5rem);
+    font-weight: 700;
+    letter-spacing: 0.5em;
+    text-indent: 0.5em;
+    padding: 1.6vh 0;
+    box-shadow: 0 0.6vh 1.2vh rgba(0,0,0,0.12);
+  }
+
+  /* 자리 */
+  .classroom {
+    width: min(94vw, 1500px);
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.25fr 1fr 1fr 0.25fr 1fr 1fr;
+    grid-auto-rows: minmax(0, 1fr);
+    --rows: 4;
+    gap: 2vh 1.2vw;
+    min-height: 0;
+  }
+  .gap { visibility: hidden; }
+  .seat {
+    background: var(--seat);
+    border: 3px solid var(--seat-border);
+    border-radius: 1vw;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(1.2rem, min(5.5vw, calc(36vh / var(--rows))), 6rem);
+    font-weight: 800;
+    color: var(--num);
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 0.4vh 0.8vh rgba(0,0,0,0.06);
+  }
+  .seat.empty { color: #cfc8ba; }
+  .seat.show { animation: pop 0.35s ease-out; }
+  .seat.none { background: transparent; border: 3px dashed #e2ddd2; box-shadow: none; }
+  @keyframes pop {
+    0%   { transform: scale(0.85); opacity: 0; }
+    100% { transform: scale(1);    opacity: 1; }
+  }
+  /* 두구두구 도는 중 */
+  .seat.rolling { color: #9aa9b1; border-color: #c9d3d8; }
+  /* 멈추는 순간 */
+  .seat.done {
+    animation: land 0.6s cubic-bezier(.2,1.6,.4,1);
+    border-color: var(--accent);
+  }
+  @keyframes land {
+    0%   { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  /* 폭죽·색종이 캔버스 */
+  #fx {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .controls .sound {
+    background: transparent;
+    color: var(--muted);
+    border: 2px solid var(--seat-border);
+    padding: 0.35em 0.8em;
+    font-size: 0.8em;
+  }
+  .controls .sound:hover { background: #ebe6db; }
+</style>
+</head>
+<body>
+
+  <div class="controls">
+    <label for="count">학생 수</label>
+    <input id="count" type="number" min="1" max="60" value="24">
+    <button id="draw">자리 뽑기</button>
+    <button id="sound" class="sound" type="button">🔊 소리 켜짐</button>
+  </div>
+  <div class="controls sub">
+    <label for="apartA">짝 금지</label>
+    <input id="apartA" type="number" min="1" max="60" placeholder="번호">
+    <span>번과</span>
+    <input id="apartB" type="number" min="1" max="60" placeholder="번호">
+    <span>번은 짝이 되지 않게</span>
+  </div>
+  <div class="message" id="message"></div>
+
+  <div class="board">칠판</div>
+
+  <div class="classroom" id="classroom"></div>
+
+  <canvas id="fx"></canvas>
+
+<script>
+  const COLS = 6;
+  const classroom = document.getElementById('classroom');
+  const countInput = document.getElementById('count');
+  const drawBtn = document.getElementById('draw');
+  const message = document.getElementById('message');
+  const apartA = document.getElementById('apartA');
+  const apartB = document.getElementById('apartB');
+
+  function randomInt(max) {
+    if (window.crypto && crypto.getRandomValues) {
+      const arr = new Uint32Array(1);
+      crypto.getRandomValues(arr);
+      return arr[0] % max;
+    }
+    return Math.floor(Math.random() * max);
+  }
+
+  function shuffle(list) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+  }
+
+  // 자리 그리기: numbers 가 null 이면 빈 자리
+  function render(total, numbers) {
+    classroom.innerHTML = '';
+    const rows = Math.max(4, Math.ceil(total / COLS));
+    classroom.style.setProperty('--rows', rows);
+    const seats = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (c === 2 || c === 4) {
+          const g = document.createElement('div');
+          g.className = 'gap';
+          classroom.appendChild(g);
+        }
+        const idx = r * COLS + c;
+        const seat = document.createElement('div');
+        seat.className = 'seat';
+        if (idx >= total) {
+          seat.classList.add('none');
+        } else if (!numbers) {
+          seat.classList.add('empty');
+          seat.textContent = '?';
+        } else {
+          seats.push({ el: seat, num: numbers[idx] });
+          seat.classList.add('empty');
+          seat.textContent = '';
+        }
+        classroom.appendChild(seat);
+      }
+    }
+    return seats;
+  }
+
+  function draw() {
+    const total = parseInt(countInput.value, 10);
+    if (!Number.isInteger(total) || total < 1 || total > 60) {
+      message.textContent = '학생 수는 1부터 60 사이로 입력해 주세요.';
+      return;
+    }
+    // 짝 금지 번호 확인
+    const aText = apartA.value.trim();
+    const bText = apartB.value.trim();
+    let a = null, b = null;
+    if (aText !== '' || bText !== '') {
+      a = parseInt(aText, 10);
+      b = parseInt(bText, 10);
+      if (!Number.isInteger(a) || !Number.isInteger(b)) {
+        message.textContent = '짝 금지 번호를 두 칸 모두 적어 주세요. (쓰지 않으려면 두 칸 모두 비워 두세요.)';
+        return;
+      }
+      if (a < 1 || a > total || b < 1 || b > total) {
+        message.textContent = `짝 금지 번호는 1부터 ${total} 사이로 적어 주세요.`;
+        return;
+      }
+      if (a === b) {
+        message.textContent = '짝 금지 번호는 서로 다른 두 번호를 적어 주세요.';
+        return;
+      }
+      if (total <= 2) {
+        message.textContent = '학생이 2명뿐이라 두 사람을 떨어뜨릴 수 없어요.';
+        return;
+      }
+    }
+
+    message.textContent = '';
+    drawBtn.disabled = true;
+
+    // 같은 짝(1·2, 3·4, 5·6번째 자리)이 되면 다시 섞기
+    const isPaired = nums => {
+      if (a === null) return false;
+      const ia = nums.indexOf(a);
+      const ib = nums.indexOf(b);
+      return (ia ^ 1) === ib;
+    };
+    let numbers;
+    do {
+      numbers = shuffle(Array.from({ length: total }, (_, i) => i + 1));
+    } while (isPaired(numbers));
+    const seats = render(total, numbers);
+    seats.forEach(s => {
+      s.el.classList.remove('empty');
+      s.el.classList.add('rolling');
+    });
+
+    // 두구두구: 3초 동안 번호가 빠르게 바뀌다가 점점 느려짐
+    const ROLL_MS = 3000;
+    playDrumroll(ROLL_MS / 1000);
+    const start = performance.now();
+    const pool = Array.from({ length: total }, (_, i) => i + 1);
+
+    function tick() {
+      const elapsed = performance.now() - start;
+      if (elapsed >= ROLL_MS) {
+        finish();
+        return;
+      }
+      shuffle(pool);
+      seats.forEach((s, i) => { s.el.textContent = pool[i]; });
+      const p = elapsed / ROLL_MS;
+      const delay = 45 + 170 * p * p;            // 45ms → 215ms
+      setTimeout(tick, Math.min(delay, ROLL_MS - elapsed));
+    }
+
+    function finish() {
+      seats.forEach(s => {
+        s.el.classList.remove('rolling');
+        s.el.classList.add('done');
+        s.el.textContent = s.num;
+      });
+      playFanfare();
+      celebrate();
+      setTimeout(() => {
+        seats.forEach(s => s.el.classList.remove('done'));
+        drawBtn.disabled = false;
+      }, 900);
+    }
+
+    tick();
+  }
+
+  /* ───────────── 효과음 (Web Audio, 소리 파일 없음) ───────────── */
+  let audioCtx = null;
+  let soundOn = true;
+  const soundBtn = document.getElementById('sound');
+  soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? '🔊 소리 켜짐' : '🔇 소리 꺼짐';
+  });
+
+  function ctx() {
+    if (!soundOn) return null;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  let noiseBuf = null;
+  function noise(ac) {
+    if (!noiseBuf) {
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    return src;
+  }
+
+  // 작은북 한 번 치기
+  function snare(ac, t, vol) {
+    const src = noise(ac);
+    const bp = ac.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    src.connect(bp).connect(g).connect(ac.destination);
+    src.start(t, Math.random() * 1.5, 0.08);
+  }
+
+  // 큰북 "쿵"
+  function kick(ac, t, vol) {
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.3);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    o.connect(g).connect(ac.destination);
+    o.start(t); o.stop(t + 0.5);
+  }
+
+  // 심벌 "챙"
+  function cymbal(ac, t, vol, len) {
+    const src = noise(ac);
+    const hp = ac.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 5000;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    src.connect(hp).connect(g).connect(ac.destination);
+    src.start(t, 0, len);
+  }
+
+  // 두구두구두구… 점점 커지는 북소리
+  function playDrumroll(sec) {
+    const ac = ctx(); if (!ac) return;
+    const t0 = ac.currentTime + 0.02;
+    const gap = 0.045;
+    for (let t = 0; t < sec; t += gap) {
+      const p = t / sec;
+      snare(ac, t0 + t, 0.12 + 0.45 * p);
+    }
+  }
+
+  // 금관 소리 한 음
+  function brass(ac, freq, t, len, vol) {
+    const out = ac.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+    out.gain.setValueAtTime(vol, t + len * 0.7);
+    out.gain.exponentialRampToValueAtTime(0.001, t + len);
+    const lp = ac.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t);
+    lp.frequency.linearRampToValueAtTime(3200, t + 0.06);
+    lp.connect(out).connect(ac.destination);
+    // 살짝 떨리는 비브라토
+    const lfo = ac.createOscillator();
+    const lfoGain = ac.createGain();
+    lfo.frequency.value = 5.5; lfoGain.gain.value = freq * 0.006;
+    lfo.connect(lfoGain);
+    [['sawtooth', 0], ['sawtooth', 6], ['square', -4]].forEach(([type, det]) => {
+      const o = ac.createOscillator();
+      o.type = type; o.frequency.value = freq; o.detune.value = det;
+      lfoGain.connect(o.frequency);
+      o.connect(lp);
+      o.start(t); o.stop(t + len + 0.05);
+    });
+    lfo.start(t); lfo.stop(t + len + 0.05);
+  }
+
+  // 빠바바 빰~ 빵빠레
+  function playFanfare() {
+    const ac = ctx(); if (!ac) return;
+    const t = ac.currentTime + 0.01;
+    kick(ac, t, 0.9);
+    cymbal(ac, t, 0.35, 1.6);
+    const G4 = 392, C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
+    const v = 0.07;
+    brass(ac, G4, t + 0.00, 0.14, v);
+    brass(ac, C5, t + 0.15, 0.14, v);
+    brass(ac, E5, t + 0.30, 0.14, v);
+    brass(ac, G5, t + 0.45, 0.30, v);
+    brass(ac, E5, t + 0.78, 0.14, v);
+    // 마지막 화음 빰~
+    [C5, E5, G5, C6].forEach(f => brass(ac, f, t + 0.95, 1.3, v * 0.8));
+    kick(ac, t + 0.95, 0.7);
+    cymbal(ac, t + 0.95, 0.25, 1.8);
+  }
+
+  // 폭죽 "펑"
+  function popSound(delaySec) {
+    const ac = ctx(); if (!ac) return;
+    const t = ac.currentTime + delaySec;
+    const src = noise(ac);
+    const lp = ac.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1400;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    src.connect(lp).connect(g).connect(ac.destination);
+    src.start(t, Math.random(), 0.4);
+    // 반짝반짝 여운
+    cymbal(ac, t + 0.05, 0.05, 0.6);
+  }
+
+  /* ───────────── 폭죽 · 색종이 ───────────── */
+  const fx = document.getElementById('fx');
+  const g2 = fx.getContext('2d');
+  let W = 0, H = 0, particles = [], running = false;
+  const COLORS = ['#e76f51', '#f4a261', '#e9c46a', '#2a9d8f', '#5b8fd6', '#b07cc6', '#ef8fa6'];
+
+  function resizeFx() {
+    const dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth; H = window.innerHeight;
+    fx.width = W * dpr; fx.height = H * dpr;
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resizeFx);
+  resizeFx();
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+  // 양쪽 아래에서 색종이 발사
+  function confettiCannon(x, dir) {
+    const n = Math.round(W / 12);
+    for (let i = 0; i < n; i++) {
+      const angle = (-Math.PI / 2) + dir * rand(0.15, 0.65);
+      const speed = rand(H * 0.018, H * 0.034);
+      particles.push({
+        kind: 'paper',
+        x, y: H + 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        w: rand(8, 16), h: rand(5, 10),
+        rot: rand(0, Math.PI * 2), vr: rand(-0.3, 0.3),
+        flip: rand(0, Math.PI * 2), vflip: rand(0.1, 0.3),
+        color: pick(COLORS),
+        life: 1, decay: rand(0.0025, 0.0045)
+      });
+    }
+  }
+
+  // 공중에서 폭죽 터뜨리기
+  function firework(x, y) {
+    const color = pick(COLORS);
+    const n = 70;
+    const power = Math.min(W, H) * 0.012;
+    for (let i = 0; i < n; i++) {
+      const angle = (i / n) * Math.PI * 2 + rand(-0.05, 0.05);
+      const speed = power * rand(0.55, 1);
+      particles.push({
+        kind: 'spark',
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        r: rand(2, 3.5),
+        color: Math.random() < 0.8 ? color : '#fff6d8',
+        life: 1, decay: rand(0.012, 0.02)
+      });
+    }
+    if (!running) { running = true; requestAnimationFrame(frame); }
+  }
+
+  function celebrate() {
+    confettiCannon(0, 1);
+    confettiCannon(W, -1);
+    const bursts = 5;
+    for (let i = 0; i < bursts; i++) {
+      const delay = 150 + i * 280 + rand(0, 120);
+      setTimeout(() => {
+        firework(rand(W * 0.12, W * 0.88), rand(H * 0.12, H * 0.45));
+      }, delay);
+      popSound(delay / 1000);
+    }
+    if (!running) { running = true; requestAnimationFrame(frame); }
+  }
+
+  function frame() {
+    g2.clearRect(0, 0, W, H);
+    const grav = H * 0.00045;
+    particles = particles.filter(p => p.life > 0 && p.y < H + 60);
+    for (const p of particles) {
+      if (p.kind === 'paper') {
+        p.vx *= 0.985; p.vy = p.vy * 0.985 + grav;
+        p.x += p.vx + Math.sin(p.flip) * 0.8;
+        p.y += p.vy;
+        p.rot += p.vr; p.flip += p.vflip;
+        p.life -= p.decay;
+        g2.save();
+        g2.globalAlpha = Math.min(1, p.life * 2);
+        g2.translate(p.x, p.y);
+        g2.rotate(p.rot);
+        g2.scale(1, Math.cos(p.flip));
+        g2.fillStyle = p.color;
+        g2.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        g2.restore();
+      } else {
+        p.vx *= 0.96; p.vy = p.vy * 0.96 + grav * 0.5;
+        p.x += p.vx; p.y += p.vy;
+        p.life -= p.decay;
+        g2.globalAlpha = Math.max(0, p.life);
+        g2.fillStyle = p.color;
+        g2.beginPath();
+        g2.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        g2.fill();
+      }
+    }
+    g2.globalAlpha = 1;
+    if (particles.length) requestAnimationFrame(frame);
+    else { running = false; g2.clearRect(0, 0, W, H); }
+  }
+
+  drawBtn.addEventListener('click', draw);
+  [countInput, apartA, apartB].forEach(el =>
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') draw(); })
+  );
+  countInput.addEventListener('input', () => {
+    const n = parseInt(countInput.value, 10);
+    if (Number.isInteger(n) && n >= 1 && n <= 60) render(n, null);
+  });
+
+  render(24, null);
+</script>
+</body>
+</html>
